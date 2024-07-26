@@ -2,11 +2,16 @@
 #pragma warning(push, 3)
 #include <windows.h>
 #pragma warning(pop)
+#include <stdint.h>
 #include "Main.h"
 
 HWND g_GameWindow;
 BOOL g_GameIsRunning;
 GAMEBITMAP g_DrawingSurface;
+MONITORINFO g_MonitorInfo = {sizeof(MONITORINFO)};
+
+int32_t g_MonitorWidth;
+int32_t g_MonitorHeight;
 
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPSTR lpCmdLine, _In_ int nShowCmd){
     
@@ -38,6 +43,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
         goto Exit;
     }
+
+    memset(g_DrawingSurface.Memory, 0x3F, GAME_CANVAS_MEMORY_SIZE);
 
     MSG Message = { 0 };
 
@@ -102,9 +109,11 @@ DWORD CreateMainGameWindow(void){
     wc.hIcon = LoadIconA(NULL, IDI_APPLICATION);                    //The window's icon image.
     wc.hIconSm = LoadIconA(NULL, IDI_APPLICATION);                  //The window's smaller icon image.
     wc.hCursor = LoadCursorA(NULL, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);                  //The window's color. The default color is light grey.
+    wc.hbrBackground = CreateSolidBrush(RGB(255, 0, 255));          //The window's color. The default color is light grey.
     wc.lpszMenuName = NULL;                                         //The window's menu option names displayed at the top, if the window has menu options in the first place.
     wc.lpszClassName = GAME_NAME "_WindowClass";                    //The window class's alternative refrence name.
+
+    // SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     if (RegisterClassExA(&wc) == 0) {
 
@@ -115,13 +124,36 @@ DWORD CreateMainGameWindow(void){
         goto Exit;
     }
 
-    g_GameWindow = CreateWindowExA(WS_EX_CLIENTEDGE, wc.lpszClassName, "RPG Game", WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 384, 216, NULL, NULL, GetModuleHandleA(NULL), NULL);
+    g_GameWindow = CreateWindowExA(WS_EX_CLIENTEDGE, wc.lpszClassName, "RPG Game", WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 640, 480, NULL, NULL, GetModuleHandleA(NULL), NULL);
 
     if (g_GameWindow == NULL) {
 
         Result = GetLastError();
 
         MessageBox(NULL, "Window Creation Failed!", "Error!", MB_ICONEXCLAMATION | MB_OK);
+
+        goto Exit;
+    }
+
+    if(GetMonitorInfoA(MonitorFromWindow(g_GameWindow, MONITOR_DEFAULTTOPRIMARY), &g_MonitorInfo) == 0){
+
+        Result = ERROR_MONITOR_NO_DESCRIPTOR;
+
+        goto Exit;
+
+    }
+
+    g_MonitorWidth = g_MonitorInfo.rcMonitor.right - g_MonitorInfo.rcMonitor.left;
+    g_MonitorHeight = g_MonitorInfo.rcMonitor.bottom - g_MonitorInfo.rcMonitor.top;
+    
+    if(SetWindowLongPtrA(g_GameWindow, GWL_STYLE, (WS_OVERLAPPEDWINDOW | WS_VISIBLE) & ~WS_OVERLAPPEDWINDOW) == 0){
+        Result = GetLastError();
+
+        goto Exit;
+    }
+    
+    if(SetWindowPos(g_GameWindow, HWND_TOP, g_MonitorInfo.rcMonitor.left, g_MonitorInfo.rcMonitor.top, g_MonitorWidth, g_MonitorHeight, SWP_NOOWNERZORDER | SWP_FRAMECHANGED) == 0){
+        Result = GetLastError();
 
         goto Exit;
     }
@@ -166,6 +198,22 @@ void ProcessPlayerInput(void){
 }
 
 void RenderFrameGraphics(void){
-    
-    
+    //memset(g_DrawingSurface.Memory, 0xFF, 4);
+
+    PIXEL32 Pixel = {0};
+
+    Pixel.Blue = 0x20;
+    Pixel.Green = 0xB2;
+    Pixel.Red = 0x10;
+    Pixel.Alpha = 0xFF;
+
+    for(int x = 0; x < (GAME_RES_WIDTH * GAME_RES_HEIGHT) / 4; x++) {
+        memcpy((PIXEL32*)g_DrawingSurface.Memory + x, &Pixel, sizeof(PIXEL32));
+    }
+
+    HDC DeviceContext = GetDC(g_GameWindow);
+
+    StretchDIBits(DeviceContext, 0, 0, g_MonitorWidth, g_MonitorHeight, 0, 0,GAME_RES_WIDTH, GAME_RES_HEIGHT, g_DrawingSurface.Memory, &g_DrawingSurface.BitmapInfo, DIB_RGB_COLORS, SRCCOPY);
+
+    ReleaseDC(g_GameWindow, DeviceContext);
 }
